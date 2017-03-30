@@ -18,6 +18,8 @@ let shouldRollup = [
   'og:audio'
 ]
 
+var util = require('util')
+
 module.exports = async function (url, opts) {
   opts = _.defaults(opts || Object.create(null), {
     ogp: true,
@@ -41,16 +43,17 @@ module.exports = async function (url, opts) {
     }
   }
 
+  // debug(util.inspect(metadata, false, null))
+
   return metadata
 }
 
 function fetch (url, promisify = false) {
-  debug('fetch url=', url)
+  // debug('fetch url=', url)
 
   let r = promisify ? promisedRequest : request
   return r.get({
     url,
-    gzip: true,
     headers: {
       'user-agent': 'facebookexternalhit'
     }
@@ -58,8 +61,8 @@ function fetch (url, promisify = false) {
 }
 
 async function scrape (url, opts) {
-  debug('scrape url=', url)
-  debug('scrape opts=', opts)
+  // debug('scrape url=', url)
+  // debug('scrape opts=', opts)
 
   let unfurled = Object.create(null)
 
@@ -87,12 +90,10 @@ async function scrape (url, opts) {
         return _.startsWith(name, k)
       })
 
-      // debug('rollupAs', rollupAs)
-      // debug('name', name)
+      if (!name || !val) return
 
       if (rollupAs) {
-        let namePart = name.slice(rollupAs.length)
-        let prop = !namePart ? 'url' : _.camelCase(namePart)
+        let prop = !name ? 'url' : _.camelCase(name)
         rollupAs = _.camelCase(rollupAs)
 
         target = (target[rollupAs] || (target[rollupAs] = [{}]))
@@ -100,8 +101,8 @@ async function scrape (url, opts) {
         let last = _.last(target)
         last = (last[prop] ? (target.push({}) && _.last(target)) : last)
 
-        debug('rollup prop=', prop)
-        debug('rollup val=', val)
+        // debug('rollup prop=', prop)
+        // debug('rollup val=', val)
 
         last[prop] = val
 
@@ -110,15 +111,17 @@ async function scrape (url, opts) {
 
       let prop = _.camelCase(name)
 
-      debug('rollup prop=', prop)
-      debug('rollup val=', val)
+      // debug('rollup prop=', prop)
+      // debug('rollup val=', val)
 
-      target[name] = val
+      target[prop] = val
     }
 
     parser.onopentag = function ({ name, attributes: attr }) {
       let prop = attr.property || attr.name
       let val = attr.content || attr.value
+
+      debug('OPENTAG')
 
       if (opts.oembed && attr.type === 'application/json+oembed') {
         unfurled.oembed = attr.href
@@ -154,14 +157,22 @@ async function scrape (url, opts) {
 
     parser.onclosetag = function (tag) {
       if (tag === 'head') {
-        debug('ABORTING')
-        debug('DONE', require('util').inspect(unfurled, false, null))
-        resolve(unfurled)
+        console.log('ABORTING')
+
         req.abort() // Parse as little as possible.
+        parser.flush()
+
+        resolve(unfurled)
       }
     }
 
     req.on('data', (data) => {
+      let isAborted = req._aborted
+
+      debug('isAborted', isAborted)
+
+      debug('GOT DATA', +new Date())
+
       if (parser.write(data) === false) req.pause()
       else parser.flush()
     })
@@ -171,6 +182,7 @@ async function scrape (url, opts) {
     })
 
     req.on('abort', () => {
+      debug('ABORTED')
     })
 
     req.on('end', () => {
